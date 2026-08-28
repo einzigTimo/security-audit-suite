@@ -17,3 +17,7 @@ dist/
 /build/
 /dist/
 *.spec.bak
+
+# Python-Bytecode
+__pycache__/
+*.pyc

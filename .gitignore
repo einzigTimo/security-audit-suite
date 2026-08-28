@@ -1,0 +1,19 @@
+# Laufzeit-Artefakte des Selbsttests
+selftest/*.pem
+# Erzeugte Audit-Reports
+audit_*.txt
+audit_*.json
+audit_*.html
+# Update-Arbeitsverzeichnis
+updates/temp_extract/
+updates/*.zip
+# PyInstaller-Build-Ausgabe
+build/
+dist/
+*.manifest
+# GitHub-Token für den Updater (nie einchecken)
+.gh_token
+# PyInstaller-Build-Artefakte
+/build/
+/dist/
+*.spec.bak

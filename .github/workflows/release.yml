@@ -1,28 +1,67 @@
 name: Build & Release
 
-# Baut das Windows-Setup automatisch, sobald ein Tag "sat-vX.Y.Z" gepusht wird,
-# und haengt die fertige .exe an ein GitHub-Release.
-# Manuell ausloesbar ueber "Run workflow" (mit Versionsangabe).
+# Produktiver Release ausschliesslich ueber die Develop Zentrale
+# (DEPLOY-RICHTLINIE.md im Deployment-Controller): der Workflow laeuft nur mit
+# einem frischen, HMAC-signierten Zentrale-Dispatch. Version kommt aus
+# version.json (einzige Versionsquelle); der Tag sat-v<Version> wird NACH dem
+# gruenen Build vom Release gesetzt, nicht mehr von Hand gepusht.
 
 on:
-  push:
-    tags:
-      - "sat-v*"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version (z. B. 1.0.1) — nur beim manuellen Lauf"
+      zentrale_run_id:
+        description: 'Run-ID des frischen Develop-Zentrale-Preflights'
         required: true
-        default: "1.0.1"
+        type: string
+      zentrale_commit:
+        description: 'Von der Develop Zentrale geprüfter Commit'
+        required: true
+        type: string
+      zentrale_expires_at:
+        description: 'Ablaufzeit der signierten Zentrale-Attestierung'
+        required: true
+        type: string
+      zentrale_signature:
+        description: 'HMAC-Signatur der Develop Zentrale'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
+    if: ${{ github.event.inputs.zentrale_run_id != '' && github.event.inputs.zentrale_commit == github.sha && github.event.inputs.zentrale_signature != '' }}
     runs-on: windows-latest
 
     steps:
+      - name: Signierte Develop-Zentrale-Attestierung pruefen
+        shell: pwsh
+        env:
+          DEPLOY_GATE_KEY: ${{ secrets.DEPLOY_ZENTRALE_HMAC_KEY_SAS }}
+          ZENTRALE_RUN_ID: ${{ github.event.inputs.zentrale_run_id }}
+          ZENTRALE_COMMIT: ${{ github.event.inputs.zentrale_commit }}
+          ZENTRALE_EXPIRES: ${{ github.event.inputs.zentrale_expires_at }}
+          ZENTRALE_SIGNATURE: ${{ github.event.inputs.zentrale_signature }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:DEPLOY_GATE_KEY)) { throw 'Deploy-Gate-Secret fehlt; kein Release.' }
+          $key = [Convert]::FromBase64String($env:DEPLOY_GATE_KEY)
+          $expires = [DateTimeOffset]::Parse($env:ZENTRALE_EXPIRES).ToUniversalTime()
+          if ($expires -le [DateTimeOffset]::UtcNow -or $expires -gt [DateTimeOffset]::UtcNow.AddMinutes(12)) {
+            throw 'Zentrale-Attestierung ist abgelaufen oder zeitlich unplausibel.'
+          }
+          $payload = "$env:ZENTRALE_RUN_ID|einzigTimo/security-audit-suite|release.yml|$env:ZENTRALE_COMMIT|$env:ZENTRALE_EXPIRES"
+          $hmac = [Security.Cryptography.HMACSHA256]::new($key)
+          try { $expected = [Convert]::ToHexString($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($payload))).ToLowerInvariant() }
+          finally { $hmac.Dispose(); [Array]::Clear($key, 0, $key.Length) }
+          if (-not [Security.Cryptography.CryptographicOperations]::FixedTimeEquals(
+            [Text.Encoding]::ASCII.GetBytes($expected),
+            [Text.Encoding]::ASCII.GetBytes($env:ZENTRALE_SIGNATURE.ToLowerInvariant()))) {
+            throw 'HMAC-Signatur der Develop Zentrale ist ungueltig.'
+          }
+          Write-Host 'OK: signierter und frischer Develop-Zentrale-Dispatch.'
+
       - name: Quellcode auschecken
         uses: actions/checkout@v4
 
@@ -31,15 +70,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Version bestimmen
+      - name: Version aus version.json bestimmen
         id: ver
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
-          } else {
-            $version = "${{ github.ref_name }}" -replace '^sat-v',''
-          }
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Ungueltige Version '$version' in version.json (SemVer erwartet)." }
+          $tag = "sat-v$version"
+          $vorhanden = git ls-remote origin "refs/tags/$tag"
+          if ($vorhanden) { throw "Tag $tag existiert bereits - Version in version.json erhoehen." }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Version: $version"
 
@@ -57,10 +96,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = "${{ steps.ver.outputs.version }}"
-          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "sat-v$version" } else { "${{ github.ref_name }}" }
+          $tag = "sat-v$version"
           $setup = "dist\SecurityAuditSuite-$version-Setup.exe"
           if (-not (Test-Path $setup)) { throw "Setup nicht gefunden: $setup" }
           gh release create "$tag" "$setup" `
+            --target "$env:GITHUB_SHA" `
             --title "Security Audit Suite $version" `
             --notes "Automatisch gebautes Windows-Setup. Nur mit ausdruecklicher Testberechtigung verwenden." `
             --repo "${{ github.repository }}"

@@ -57,17 +57,21 @@ runs all 31 tests.
 Releases use the tag convention **`sat-vX.Y.Z`**. The auto-updater looks for
 exactly this prefix.
 
-```bash
-git tag sat-v1.0.1
-git push origin sat-v1.0.1
-```
+The release flow (since 2026-08-28):
 
-The workflow then builds `SecurityAuditSuite-1.0.1-Setup.exe`, uploads it as an
-artifact, and attaches it to the GitHub release with the same tag. The in-app
-auto-updater (the `Updates` button) finds this asset on the next start.
+1. Bump the version in `version.json` (single version source, SemVer) and
+   commit/push to `main`.
+2. Start the release through the maintainer's deploy controller ("Develop
+   Zentrale"). It verifies the working tree, creates a short-lived preflight
+   attestation, and dispatches the `release.yml` workflow with an HMAC
+   signature. Unsigned or manual dispatches are rejected before any build.
+3. The workflow builds `SecurityAuditSuite-<version>-Setup.exe`, creates the
+   `sat-v<version>` release, and attaches the setup. The in-app auto-updater
+   (the `Updates` button) finds this asset on the next start.
 
-`workflow_dispatch` (the "Actions" tab → "Run workflow") builds a test setup;
-provide the version as input.
+Tags are created by the release workflow after a green build — never pushed by
+hand. Re-releasing the same version fails (tag collision); bump the version
+instead.
 
 ## Local build on Windows
 

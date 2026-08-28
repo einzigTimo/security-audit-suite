@@ -77,8 +77,11 @@ powershell -File packaging/build.ps1
 ```
 
 Produces `dist/SecurityAuditSuite/` and, via Inno Setup, a Windows setup
-installer. Tagging a release as `sat-vX.Y.Z` builds the setup automatically on
-GitHub Actions and attaches it to the release.
+installer. Production releases are started exclusively through the maintainer's
+deploy controller ("Develop Zentrale"), which dispatches the signed GitHub
+Actions release workflow; the workflow reads the version from `version.json`,
+builds the setup, and creates the `sat-vX.Y.Z` release. Tags are created by the
+release workflow, not pushed by hand.
 
 ## Note on language
 

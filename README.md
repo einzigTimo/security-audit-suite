@@ -14,17 +14,34 @@ information disclosure, injection indicators, and more) and produces a report.
 > against systems you have written authorization to test. You must confirm the
 > permission in the interface before every run.
 
-## Getting started
+## Install (for users)
+
+The easiest way — no Python, no setup:
+
+1. Go to the [**Releases**](../../releases/latest) page.
+2. Under **Assets**, download `SecurityAuditSuite-<version>-Setup.exe`.
+3. Run it and follow the installer. It bundles everything (including the
+   browser it needs), so there is nothing else to install.
+
+> Windows SmartScreen may warn because the installer is not code-signed. Choose
+> *More info → Run anyway* if you trust the source.
+
+Once installed, start **Security Audit Suite**, enter the **target URL**, pick
+the scan intensity, confirm the permission to test, and start the run. Every
+HTTP request is logged live, so you can always see what is being checked.
+
+The app updates itself: the **Updates** button checks the Releases page for a
+newer version.
+
+## Run from source (for developers)
+
+If you want to run or modify the code directly instead of using the installer:
 
 ```bash
 pip install -r requirements.txt
 python -m playwright install chromium
 python gui.pyw
 ```
-
-In the interface, enter the **target URL**, pick the scan intensity, confirm the
-permission to test, and start the run. Every HTTP request is logged live, so you
-can always see what is currently being checked.
 
 ## Layout
 

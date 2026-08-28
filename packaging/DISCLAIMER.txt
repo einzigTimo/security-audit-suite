@@ -1,0 +1,46 @@
+SECURITY AUDIT SUITE — WICHTIGER HINWEIS, BITTE LESEN
+=====================================================
+
+WAS DIESE SOFTWARE IST
+----------------------
+Die Security Audit Suite ist ein Werkzeug zur Sicherheitspruefung von
+Webseiten. Sie sendet gezielte HTTP-Anfragen an eine von Ihnen angegebene
+Ziel-Adresse und prueft sie auf gaengige Schwachstellen: fehlende
+Schutz-Header, unsichere Cookies, veraltete TLS-Verschluesselung, offene
+Schnittstellen, Fehlkonfigurationen, Hinweise auf Injection-Luecken u. a.
+Am Ende erhalten Sie einen Bericht mit Befunden und Empfehlungen.
+
+WAS SIE TUT
+-----------
+- Sie ruft die Zielseite aktiv auf und "klopft" gezielt an vielen Stellen an.
+- Das ist ein AKTIVER Test, kein passives Mitlesen. Solche Anfragen koennen
+  in Server-Protokollen als Angriffsversuch erscheinen.
+- Je nach Intensitaet werden viele Anfragen gesendet.
+
+WAS IHNEN BLUEHT, WENN SIE ES FALSCH BENUTZEN
+---------------------------------------------
+Das Testen fremder Systeme OHNE ausdrueckliche, am besten schriftliche
+Erlaubnis des Betreibers ist in vielen Laendern STRAFBAR.
+
+In Deutschland koennen einschlaegig sein:
+  - § 202a StGB  (Ausspaehen von Daten)
+  - § 202b StGB  (Abfangen von Daten)
+  - § 202c StGB  (Vorbereiten des Ausspaehens/Abfangens, "Hackerparagraph")
+  - § 303a/b StGB (Datenveraenderung, Computersabotage)
+
+Moegliche Folgen: Geldstrafe oder Freiheitsstrafe, zivilrechtliche
+Schadensersatzforderungen und Sperrung Ihres Internetzugangs.
+
+IHRE VERANTWORTUNG
+------------------
+- Testen Sie NUR Systeme, die Ihnen gehoeren, oder fuer die Sie eine
+  nachweisbare Erlaubnis haben.
+- Sie bestaetigen vor jedem Lauf in der Oberflaeche die Testberechtigung.
+- Die Verantwortung fuer jeden Einsatz liegt allein bei Ihnen.
+
+HAFTUNGSAUSSCHLUSS
+------------------
+Die Software wird "wie besehen" bereitgestellt, ohne jede Gewaehr. Die
+Autoren uebernehmen keine Haftung fuer Schaeden oder rechtliche Folgen aus
+der Nutzung. Mit der Installation bestaetigen Sie, dass Sie diesen Hinweis
+gelesen und verstanden haben.

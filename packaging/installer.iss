@@ -24,6 +24,8 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 PrivilegesRequired=lowest
+; Warnhinweis, den der Nutzer vor der Installation lesen und bestaetigen muss.
+InfoBeforeFile=DISCLAIMER.txt
 
 [Languages]
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"

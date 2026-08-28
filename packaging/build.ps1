@@ -33,6 +33,12 @@ if (-not $Version) {
 }
 Write-Host "== Version: $Version ==" -ForegroundColor Cyan
 
+# version.json auf die Build-Version stempeln, damit der Autoupdater korrekt
+# vergleicht (die eingebaute Version muss dem Release-Tag entsprechen).
+$vjson = [ordered]@{ version = $Version; updated = (Get-Date).ToString("s") } | ConvertTo-Json
+Set-Content -Path "version.json" -Value $vjson -Encoding UTF8
+Write-Host "== version.json auf $Version gesetzt ==" -ForegroundColor DarkGray
+
 # venv sicherstellen
 if (-not (Test-Path ".venv\Scripts\python.exe")) {
     Write-Host "== Lege virtuelle Umgebung an ==" -ForegroundColor Cyan

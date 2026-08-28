@@ -1,0 +1,66 @@
+name: Build & Release
+
+# Baut das Windows-Setup automatisch, sobald ein Tag "sat-vX.Y.Z" gepusht wird,
+# und haengt die fertige .exe an ein GitHub-Release.
+# Manuell ausloesbar ueber "Run workflow" (mit Versionsangabe).
+
+on:
+  push:
+    tags:
+      - "sat-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (z. B. 1.0.1) — nur beim manuellen Lauf"
+        required: true
+        default: "1.0.1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Quellcode auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version bestimmen
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}" -replace '^sat-v',''
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $version"
+
+      - name: Inno Setup installieren
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Setup bauen
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version "${{ steps.ver.outputs.version }}"
+
+      - name: Release erstellen und Setup anhaengen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "sat-v$version" } else { "${{ github.ref_name }}" }
+          $setup = "dist\SecurityAuditSuite-$version-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "Setup nicht gefunden: $setup" }
+          gh release create "$tag" "$setup" `
+            --title "Security Audit Suite $version" `
+            --notes "Automatisch gebautes Windows-Setup. Nur mit ausdruecklicher Testberechtigung verwenden." `
+            --repo "${{ github.repository }}"

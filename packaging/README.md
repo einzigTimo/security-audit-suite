@@ -1,90 +1,89 @@
-# Paketierung — Windows
+# Packaging — Windows
 
-## Schnellster Weg: ein Befehl
+## Fastest path: one command
 
-Aus `apps\security-audit-tool` (PowerShell):
+From the repository root (PowerShell):
 
 ```powershell
-# Fertiges Setup bauen (findet Inno Setup selbst, laedt Chromium nur bei Bedarf)
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Pull
+# Build the finished setup (finds Inno Setup itself, downloads Chromium only if needed)
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 
-# Nur ausprobieren, ohne Setup — startet die App direkt aus dem Quellcode
+# Just try it out, no setup — starts the app directly from source
 powershell -ExecutionPolicy Bypass -File packaging\run.ps1
 ```
 
-`build.ps1` erledigt alles: optionales `git pull`, virtuelle Umgebung,
-Abhaengigkeiten, Chromium (nur wenn noch nicht vorhanden), PyInstaller und
-Inno Setup. Der Compiler-Pfad (`ISCC.exe`) wird an den ueblichen Orten
-automatisch gesucht (Inno Setup 6 und 7, System- und Nutzerinstallation).
-Ergebnis: `dist\SecurityAuditSuite-<Version>-Setup.exe`.
+`build.ps1` does everything: optional `git pull` (with `-Pull`), virtual
+environment, dependencies, Chromium (only if not already present), PyInstaller,
+and Inno Setup. The compiler path (`ISCC.exe`) is located automatically in the
+usual places (Inno Setup 6 and 7, system and user installations). Result:
+`dist\SecurityAuditSuite-<version>-Setup.exe`.
 
-Optionen: `-Version 2026.08.28`, `-NoInstaller` (nur die portable `.exe`).
+Options: `-Version 1.0.1`, `-NoInstaller` (portable `.exe` only), `-Pull`.
 
 ---
 
-# Paketierung & Release
+# Packaging & Release
 
-Baut aus dem Python-Werkzeug ein installierbares Windows-Programm mit
-Autoupdater. Der Build laeuft auf einem Windows-Runner (GitHub Actions); ein
-lokaler Build unter Windows ist ebenso moeglich.
+Turns the Python tool into an installable Windows program with an auto-updater.
+The build runs on a Windows runner (GitHub Actions); a local build on Windows
+works just as well.
 
-## Bestandteile
+## Components
 
-| Datei | Zweck |
+| File | Purpose |
 | --- | --- |
-| `security-audit-suite.spec` | PyInstaller — buendelt `gui.pyw`, `core/`, `tests/`, `version.json` und Chromium zur `.exe` |
-| `rthook_playwright.py` | Runtime-Hook: findet den gebuendelten Chromium (`PLAYWRIGHT_BROWSERS_PATH=0`) |
-| `installer.iss` | Inno Setup — erzeugt `SecurityAuditSuite-<version>-Setup.exe` mit Startmenue, Desktop-Icon, Deinstallation |
-| `icon.ico` / `icon.png` | Platzhalter-Produkticon (Navy-Schild). Gegen das echte Icon tauschen. |
-| `../../.github/workflows/security-audit-suite-release.yml` | CI: baut Setup und haengt es an das Release |
+| `security-audit-suite.spec` | PyInstaller — bundles `gui.pyw`, `core/`, `tests/`, `version.json` and Chromium into the `.exe` |
+| `rthook_playwright.py` | Runtime hook: finds the bundled Chromium (`PLAYWRIGHT_BROWSERS_PATH=0`) |
+| `installer.iss` | Inno Setup — produces `SecurityAuditSuite-<version>-Setup.exe` with Start menu, desktop icon, uninstall |
+| `icon.ico` / `icon.png` | Placeholder product icon (navy shield). Swap for the real icon. |
+| `../.github/workflows/release.yml` | CI: builds the setup and attaches it to the release |
 
-## Chromium im Bundle
+## Chromium in the bundle
 
-`requirements.txt` pinnt **playwright==1.56.0**; dazu gehoert Chromium-Revision
-1194. Der Build installiert Chromium mit `PLAYWRIGHT_BROWSERS_PATH=0` in das
-playwright-Paket, PyInstaller bettet es ueber `collect_data_files("playwright")`
-ein, und der Runtime-Hook setzt zur Laufzeit `PLAYWRIGHT_BROWSERS_PATH=0`. Das
-Werkzeug scannt damit ohne Nachinstallation.
+`requirements.txt` pins **playwright==1.56.0**, which corresponds to Chromium
+revision 1194. The build installs Chromium with `PLAYWRIGHT_BROWSERS_PATH=0`
+into the playwright package, PyInstaller embeds it via
+`collect_data_files("playwright")`, and the runtime hook sets
+`PLAYWRIGHT_BROWSERS_PATH=0` at runtime. The tool then scans without any extra
+installation.
 
-Folge: Das Bundle enthaelt einen vollstaendigen Browser (rund 0,5 GB
-entpackt); das komprimierte Setup ist deutlich kleiner. Die Kette wurde
-end-to-end gegen ein lokales Ziel verifiziert: die gebaute Binary startet
-Chromium aus dem Bundle und fuehrt alle 31 Tests aus.
+Consequence: the bundle contains a full browser (about 0.5 GB unpacked); the
+compressed setup is considerably smaller. The chain was verified end-to-end
+against a local target: the built binary launches Chromium from the bundle and
+runs all 31 tests.
 
-## Release erzeugen
+## Creating a release
 
-Die Releases des Werkzeugs nutzen die Tag-Konvention **`sat-vX.Y.Z`**.
-Der Autoupdater sucht genau nach diesem Praefix.
+Releases use the tag convention **`sat-vX.Y.Z`**. The auto-updater looks for
+exactly this prefix.
 
 ```bash
-git tag sat-v2026.08.28
-git push origin sat-v2026.08.28
+git tag sat-v1.0.1
+git push origin sat-v1.0.1
 ```
 
-Der Workflow baut daraufhin `SecurityAuditSuite-2026.08.28-Setup.exe`, laedt es
-als Artefakt hoch und haengt es an das GitHub-Release mit demselben Tag. Der
-Autoupdater im Programm (`Updates`-Knopf) findet dieses Asset beim naechsten
-Start.
+The workflow then builds `SecurityAuditSuite-1.0.1-Setup.exe`, uploads it as an
+artifact, and attaches it to the GitHub release with the same tag. The in-app
+auto-updater (the `Updates` button) finds this asset on the next start.
 
-`workflow_dispatch` (Reiter „Actions" → „Run workflow") baut ein Test-Setup
-ohne Release-Upload.
+`workflow_dispatch` (the "Actions" tab → "Run workflow") builds a test setup;
+provide the version as input.
 
-## Lokaler Build unter Windows
+## Local build on Windows
 
 ```powershell
-cd apps\security-audit-tool
 python -m pip install -r requirements.txt pyinstaller
 $env:PLAYWRIGHT_BROWSERS_PATH = "0"; python -m playwright install chromium
 pyinstaller --noconfirm --clean packaging\security-audit-suite.spec
-# Inno Setup 6 vorausgesetzt:
+# Requires Inno Setup 6:
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=DEV packaging\installer.iss
-# Ergebnis: dist\SecurityAuditSuite-DEV-Setup.exe
+# Result: dist\SecurityAuditSuite-DEV-Setup.exe
 ```
 
-## Code-Signing (empfohlen, offen)
+## Code signing (recommended, not done)
 
-Setup und `.exe` sind unsigniert — Windows SmartScreen warnt entsprechend. Fuer
-Produktivbetrieb ein Authenticode-Zertifikat einbinden: `signtool sign` nach dem
-PyInstaller-Schritt und nach dem Inno-Build (bzw. Inno `SignTool`-Direktive).
-Das Zertifikat gehoert als verschluesseltes CI-Secret hinterlegt, nicht ins
-Repository.
+The setup and `.exe` are unsigned — Windows SmartScreen will warn accordingly.
+For production use, integrate an Authenticode certificate: `signtool sign` after
+the PyInstaller step and after the Inno build (or the Inno `SignTool`
+directive). Store the certificate as an encrypted CI secret, never in the
+repository.

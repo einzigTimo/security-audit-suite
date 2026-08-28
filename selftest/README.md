@@ -1,28 +1,27 @@
-# Selbsttest des Testkatalogs
+# Self-test of the test catalog
 
-Beweist, dass jeder Sicherheitstest **funktioniert** — nicht anhand von Zusicherungen,
-sondern indem jeder Test durch seinen echten Code-Pfad gegen eine kontrollierte
-Ziel-App läuft.
+Proves that every security test **works** — not by assertion, but by running
+each test through its real code path against a controlled target app.
 
-`fixture.py` startet dieselbe Anwendung in zwei Modi:
+`fixture.py` starts the same application in two modes:
 
-- **vuln** — absichtlich verwundbar (fehlende Header, offene APIs, injizierbare
-  Parameter, exponierte Dateien …).
-- **secure** — gehärtet (alle Schutzmaßnahmen aktiv).
+- **vuln** — intentionally vulnerable (missing headers, open APIs, injectable
+  parameters, exposed files, …).
+- **secure** — hardened (all protections active).
 
-`verify.py` lädt den Katalog über `AuditEngine.load_tests()` und lässt jeden
-Test gegen beide Modi laufen. Erwartung:
+`verify.py` loads the catalog via `AuditEngine.load_tests()` and runs every test
+against both modes. Expectation:
 
-| Modus | Erwartetes Ergebnis |
+| Mode | Expected result |
 | --- | --- |
-| vuln | Fund — `FAIL` oder `WARN` |
-| secure | kein Fehlalarm — `PASS`, `INFO` oder `SKIPPED` |
+| vuln | finding — `FAIL` or `WARN` |
+| secure | no false positive — `PASS`, `INFO` or `SKIPPED` |
 
-Zwei dokumentierte Ausnahmen: `TLS-01` (HTTPS-Redirect) braucht echte Ports 80/443
-und ist lokal nicht auslösbar; `INF-07` (security.txt) ist ein reiner
-Best-Practice-Hinweis und meldet `INFO`, keinen Fund.
+Two documented exceptions: `TLS-01` (HTTPS redirect) needs real ports 80/443 and
+cannot be triggered locally; `INF-07` (security.txt) is a pure best-practice hint
+and reports `INFO`, not a finding.
 
-## Ausführen
+## Running
 
 ```bash
 pip install playwright
@@ -30,9 +29,9 @@ python -m playwright install chromium
 python selftest/verify.py
 ```
 
-Das Skript erzeugt sein TLS-Zertifikat zur Laufzeit (via `openssl`) in einem
-temporären Verzeichnis — es wird nichts eingecheckt. Rückgabewert 0, wenn alle
-Tests wie erwartet greifen.
+The script generates its TLS certificate at runtime (via `openssl`) in a
+temporary directory — nothing is checked in. Returns 0 when all tests behave as
+expected.
 
-Läuft die Fixture über HTTPS mit selbstsigniertem Zertifikat; der Browser-Context
-nutzt `ignore_https_errors=True`.
+The fixture runs over HTTPS with a self-signed certificate; the browser context
+uses `ignore_https_errors=True`.

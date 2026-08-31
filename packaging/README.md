@@ -36,7 +36,8 @@ works just as well.
 | `rthook_playwright.py` | Runtime hook: finds the bundled Chromium (`PLAYWRIGHT_BROWSERS_PATH=0`) |
 | `installer.iss` | Inno Setup — produces `SecurityAuditSuite-<version>-Setup.exe` with Start menu, desktop icon, uninstall |
 | `icon.ico` / `icon.png` | Placeholder product icon (navy shield). Swap for the real icon. |
-| `../.github/workflows/release.yml` | CI: builds the setup and attaches it to the release |
+| `../.github/workflows/ci.yml` | CI: public-readiness checks, fixture self-test and package smoke build |
+| `../.github/workflows/release.yml` | Release: builds the setup, writes `.sha256`, and attaches both assets |
 
 ## Chromium in the bundle
 
@@ -50,7 +51,7 @@ installation.
 Consequence: the bundle contains a full browser (about 0.5 GB unpacked); the
 compressed setup is considerably smaller. The chain was verified end-to-end
 against a local target: the built binary launches Chromium from the bundle and
-runs all 31 tests.
+runs all 46 tests.
 
 ## Creating a release
 
@@ -65,9 +66,11 @@ The release flow (since 2026-08-28):
    Zentrale"). It verifies the working tree, creates a short-lived preflight
    attestation, and dispatches the `release.yml` workflow with an HMAC
    signature. Unsigned or manual dispatches are rejected before any build.
-3. The workflow builds `SecurityAuditSuite-<version>-Setup.exe`, creates the
-   `sat-v<version>` release, and attaches the setup. The in-app auto-updater
-   (the `Updates` button) finds this asset on the next start.
+3. The workflow builds `SecurityAuditSuite-<version>-Setup.exe`, creates
+   `SecurityAuditSuite-<version>-Setup.exe.sha256`, creates the
+   `sat-v<version>` release, and attaches both assets. The in-app auto-updater
+   (the `Updates` button) accepts the release only when the setup hash matches
+   the sidecar.
 
 Tags are created by the release workflow after a green build — never pushed by
 hand. Re-releasing the same version fails (tag collision); bump the version

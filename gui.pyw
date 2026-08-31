@@ -14,10 +14,25 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.engine import AuditEngine
+from core.policy import build_policy
 from core.reporter import Reporter
 from core.updater import AppUpdater
 
 INTENSITIES = ["Fast (Baseline)", "Medium (Spider + Fuzzing)", "Deep (Insane - Time-Based)"]
+READ_CHOICES = [
+    "1 - Baseline",
+    "2 - Spider + Fuzzing",
+    "3 - Deep",
+    "4 - Maximaler Effort",
+]
+WRITE_CHOICES = [
+    "0 - Aus",
+    "1 - Minimal",
+    "2 - Kontrolliert",
+    "3 - Aggressiv",
+    "4 - Maximaler Effort",
+]
+INVENTORY_CHOICES = ["Quick", "Full"]
 INTENSITY_HINTS = {
     "Fast (Baseline)": "Fast: nur Baseline-Header- und Konfigurations-Checks, kein Crawling.",
     "Medium (Spider + Fuzzing)": "Medium: inkl. Spider-Crawling und Fuzzing der gefundenen URLs.",
@@ -171,18 +186,30 @@ class SecurityAuditGUI:
 
         tk.Label(col, text="Ziel-URL", bg=Theme.BG_WINDOW, fg=Theme.TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.url_var = tk.StringVar(value="")
+        self.url_var = tk.StringVar()
         self._entry(col, self.url_var).pack(fill=tk.X, pady=(4, 8))
         self.detect_btn = self._button(col, "Analysieren", self.auto_detect, "secondary")
         self.detect_btn.pack(fill=tk.X, pady=(0, 14))
 
         tk.Label(col, text="Scan-Intensitaet", bg=Theme.BG_WINDOW, fg=Theme.TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.inventory_var = tk.StringVar(value=INVENTORY_CHOICES[0])
+        inv = ttk.Combobox(col, textvariable=self.inventory_var, values=INVENTORY_CHOICES,
+                           state="readonly", font=("Segoe UI", 10))
+        inv.pack(fill=tk.X, pady=(4, 8))
+
+        self.read_level_var = tk.StringVar(value=READ_CHOICES[0])
+        read = ttk.Combobox(col, textvariable=self.read_level_var, values=READ_CHOICES,
+                            state="readonly", font=("Segoe UI", 10))
+        read.pack(fill=tk.X, pady=(0, 8))
+        read.bind("<<ComboboxSelected>>", lambda e: self._update_hint())
+
+        self.write_level_var = tk.StringVar(value=WRITE_CHOICES[0])
+        write = ttk.Combobox(col, textvariable=self.write_level_var, values=WRITE_CHOICES,
+                             state="readonly", font=("Segoe UI", 10))
+        write.pack(fill=tk.X, pady=(0, 14))
+        write.bind("<<ComboboxSelected>>", lambda e: self._toggle_aggressive())
         self.intensity_var = tk.StringVar(value=INTENSITIES[0])
-        cb = ttk.Combobox(col, textvariable=self.intensity_var, values=INTENSITIES,
-                          state="readonly", font=("Segoe UI", 10))
-        cb.pack(fill=tk.X, pady=(4, 14))
-        cb.bind("<<ComboboxSelected>>", lambda e: self._update_hint())
 
         tk.Label(col, text="Session (Optional)", bg=Theme.BG_WINDOW, fg=Theme.TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
@@ -198,7 +225,35 @@ class SecurityAuditGUI:
             fg=Theme.TEXT, selectcolor=Theme.SURFACE, font=("Segoe UI", 9),
             text="Ich bestaetige die Berechtigung zum Testen (Permission to Test)",
             wraplength=270, justify="left", anchor="w")
-        consent.pack(fill=tk.X, pady=(0, 14))
+        consent.pack(fill=tk.X, pady=(0, 8))
+
+        # --- Angriffsmodus (opt-in, orthogonal zur Intensitaet) -----------
+        self.aggressive_var = tk.IntVar(value=0)
+        aggressive = tk.Checkbutton(
+            col, variable=self.aggressive_var, bg=Theme.BG_WINDOW, activebackground=Theme.BG_WINDOW,
+            fg=Theme.TEXT, selectcolor=Theme.SURFACE, font=("Segoe UI", 9, "bold"),
+            text="Angreifend (schreibend/destruktiv)", command=self._toggle_aggressive,
+            wraplength=270, justify="left", anchor="w")
+        aggressive.pack(fill=tk.X)
+        self.aggr_warn = tk.Label(
+            col, bg=Theme.BG_WINDOW, fg=Theme.DANGER if hasattr(Theme, "DANGER") else "#c0392b",
+            font=("Segoe UI", 8), wraplength=280, justify="left", anchor="w",
+            text="Achtung: legt Daten an, aendert und loescht sie (echte Writes, DELETE, "
+                 "Brute-Force). Nur gegen eigene oder ausdruecklich autorisierte Systeme.")
+        self.aggr_warn.pack(fill=tk.X, pady=(2, 6))
+
+        # Staerke-Regler 1..10 (Menge der Angriffe)
+        self.aggr_scale_row = tk.Frame(col, bg=Theme.BG_WINDOW)
+        tk.Label(self.aggr_scale_row, text="Angriffsstaerke (1 wenig - 10 maximal)",
+                 bg=Theme.BG_WINDOW, fg=Theme.TEXT, font=("Segoe UI", 9)).pack(anchor="w")
+        self.aggression_var = tk.IntVar(value=5)
+        self.aggr_scale = tk.Scale(
+            self.aggr_scale_row, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.aggression_var,
+            bg=Theme.BG_WINDOW, fg=Theme.TEXT, troughcolor=Theme.SURFACE, highlightthickness=0,
+            font=("Segoe UI", 8))
+        self.aggr_scale.pack(fill=tk.X)
+        self.aggr_scale_row.pack(fill=tk.X, pady=(0, 14))
+        self._toggle_aggressive()
 
         actions = tk.Frame(col, bg=Theme.BG_WINDOW)
         actions.pack(fill=tk.X)
@@ -343,7 +398,23 @@ class SecurityAuditGUI:
             btn.config(bg=btn._bg)
 
     def _update_hint(self):
-        self.hint_label.config(text=INTENSITY_HINTS.get(self.intensity_var.get(), ""))
+        policy = self._current_policy()
+        self.intensity_var.set(policy.legacy_intensity)
+        write_hint = "Schreibend aus." if policy.write_level == 0 else f"Schreibstufe {policy.write_level}/4 aktiv."
+        self.hint_label.config(text=f"{INTENSITY_HINTS.get(policy.legacy_intensity, '')} Inventar: {policy.inventory_mode}. {write_hint}")
+
+    def _choice_level(self, value, fallback):
+        try:
+            return int(str(value).split("-", 1)[0].strip())
+        except (TypeError, ValueError):
+            return fallback
+
+    def _current_policy(self):
+        return build_policy(
+            self._choice_level(self.read_level_var.get(), 1),
+            self._choice_level(self.write_level_var.get(), 0),
+            self.inventory_var.get(),
+        )
 
     def _log(self, msg):
         self.root.after(0, lambda: self._append_log(msg))
@@ -420,10 +491,35 @@ class SecurityAuditGUI:
         self.root.after(1000, self._tick)
 
     # ------------------------------------------------------------------ Aktionen
+    def _toggle_aggressive(self):
+        # Staerke-Regler nur aktiv, wenn der Angriffsmodus gewaehlt ist.
+        policy = self._current_policy()
+        self.aggressive_var.set(1 if policy.aggressive else 0)
+        if policy.aggression:
+            self.aggression_var.set(policy.aggression)
+        state = tk.NORMAL if policy.aggressive else tk.DISABLED
+        try:
+            self.aggr_scale.config(state=state)
+        except Exception:
+            pass
+        if hasattr(self, "hint_label"):
+            self._update_hint()
+
     def start(self):
         if not self.consent_var.get():
             messagebox.showwarning("Achtung", "Bitte bestaetige die Berechtigung zum Testen.")
             return
+        policy = self._current_policy()
+        if policy.aggressive:
+            if not messagebox.askyesno(
+                "Angriffsmodus bestaetigen",
+                f"Der Angriffsmodus fuehrt SCHREIBENDE und DESTRUKTIVE Proben aus "
+                f"(echte Writes, DELETE, Brute-Force) mit Schreibstufe {policy.write_level}/4 "
+                f"und Staerke {policy.aggression}/10.\n\n"
+                "Das kann Daten der Ziel-App anlegen, aendern oder loeschen.\n"
+                "Nur gegen eigene oder ausdruecklich autorisierte Systeme fortfahren.\n\n"
+                "Wirklich starten?"):
+                return
         url = self.url_var.get().strip()
         if not url:
             messagebox.showwarning("Achtung", "Bitte eine Ziel-URL eingeben.")
@@ -431,13 +527,20 @@ class SecurityAuditGUI:
         if not url.startswith("http"):
             url = "https://" + url
         config = {
-            "url": url, "intensity": self.intensity_var.get(),
+            "url": url, "intensity": policy.legacy_intensity,
             "login_path": self.adv_vars["login"].get() or "/login",
             "dashboard_path": self.adv_vars["dash"].get() or "/dashboard",
             "email_sel": self.adv_vars["email"].get(), "pass_sel": self.adv_vars["pass"].get(),
             "btn_sel": self.adv_vars["submit"].get(), "session_file": self.session_var.get(),
             "headless": False,
+            **policy.to_context(),
         }
+        # Ziel und Zustimmungen gelten nur fuer diesen einen In-Memory-Lauf.
+        self.url_var.set("")
+        self.consent_var.set(0)
+        self.aggressive_var.set(0)
+        self.write_level_var.set(WRITE_CHOICES[0])
+        self._toggle_aggressive()
         self.phase = "running"
         self.results = []
         self._counts = {"PASS": 0, "FAIL": 0, "WARN": 0, "OTHER": 0}
@@ -462,12 +565,19 @@ class SecurityAuditGUI:
         threading.Thread(target=self._run_engine, daemon=True).start()
 
     def _run_engine(self):
+        engine = self.engine
         try:
-            self.results = self.engine.run()
+            self.results = engine.run()
         finally:
             self.root.after(0, self._finish)
 
+    def _forget_audit_context(self):
+        if self.engine:
+            self.engine.config.clear()
+        self.engine = None
+
     def _finish(self):
+        self._forget_audit_context()
         if self.phase == "stopped":
             return
         self.phase = "done"
@@ -537,12 +647,22 @@ class SecurityAuditGUI:
             self.session_var.set(f)
 
     def auto_detect(self):
+        if self._detecting:
+            return
+        if not self.consent_var.get():
+            messagebox.showwarning(
+                "Achtung",
+                "Bitte bestaetige vor der Netzwerkanalyse die Berechtigung zum Testen.",
+            )
+            return
         url = self.url_var.get().strip()
         if not url:
             messagebox.showwarning("Achtung", "Bitte eine URL eingeben.")
             return
-        if self._detecting:
-            return
+        if not url.startswith("http"):
+            url = "https://" + url
+        self.url_var.set("")
+        self.consent_var.set(0)
         self._detecting = True
         self.detect_btn.config(text="Analysiere...")
         self._set_state(self.detect_btn, False)
@@ -572,7 +692,7 @@ class SecurityAuditGUI:
                 if fs: found["submit"] = fs
                 browser.close()
         except Exception as e:
-            error = str(e)
+            error = str(e).replace(url, "<ZIEL>")
         self.root.after(0, lambda: self._detect_done(found, error))
 
     def _detect_done(self, found, error):
@@ -588,6 +708,11 @@ class SecurityAuditGUI:
 
     def check_updates(self):
         if self._updating:
+            return
+        if not messagebox.askyesno(
+            "Netzwerkzugriff bestaetigen",
+            "Die Update-Pruefung kontaktiert das oeffentliche GitHub-Repository. Jetzt pruefen?",
+        ):
             return
         self._updating = True
         self.update_btn.config(text="Suche...")
@@ -631,16 +756,18 @@ class SecurityAuditGUI:
 
     def _download_and_run(self, result):
         try:
-            path = self.updater.download(result["url"], result["name"])
+            path, digest = self.updater.download(
+                result["url"], result["name"], result["checksum_url"]
+            )
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Update", f"Download fehlgeschlagen: {e}"))
             return
-        self.root.after(0, lambda: self._run_installer(path))
+        self.root.after(0, lambda: self._run_installer(path, digest))
 
-    def _run_installer(self, path):
+    def _run_installer(self, path, digest):
         if messagebox.askyesno("Update", "Download abgeschlossen. Installer starten? Die App wird beendet."):
             try:
-                self.updater.run_installer(path)
+                self.updater.run_installer(path, digest)
                 self.root.destroy()
                 sys.exit(0)
             except Exception as e:

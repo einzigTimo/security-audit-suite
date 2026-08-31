@@ -28,6 +28,19 @@ class SQLInjectionTest(BaseTest):
         h = Http(ctx)
         base = ctx["base_url"]
         deep = "Deep" in ctx.get("intensity", "")
+        # 0) Angriffsmodus: boolean-basierte Bestaetigung ohne Zeitverlust.
+        # OR 1=1 (wahr) liefert Daten, AND 1=2 (falsch) nicht -> Unterschied belegt SQLi.
+        if ctx.get("aggressive"):
+            for param in ("id", "q"):
+                try:
+                    rt = h.get(f"{base}/api/items?{param}=1%20OR%201=1--%20-")
+                    rf = h.get(f"{base}/api/items?{param}=1%20AND%201=2--%20-")
+                except Exception:
+                    continue
+                bt, bf = body_of(rt), body_of(rf)
+                if rt.status == 200 and rf.status == 200 and bt != bf and len(bt) > len(bf):
+                    return self.fail(f"Boolean-basierte SQLi bestaetigt ueber Parameter '{param}' "
+                                     f"(OR 1=1 liefert Daten, AND 1=2 nicht).")
         # 1) Fehlerbasiert
         for param in PARAMS[:6]:
             try:
@@ -109,10 +122,22 @@ class CommandInjectionTest(BaseTest):
     test_id = "INJ-05"; title = "Command Injection"; severity = "critical"
 
     def run(self, ctx):
+        h = Http(ctx)
+        # Angriffsmodus: direkter Output-Nachweis (echo <marker>) statt nur zeitbasiert.
+        if ctx.get("aggressive"):
+            marker = "aud1tCMDx7"
+            for param in ("host", "ip", "cmd", "ping", "domain", "target"):
+                for payload in (f"127.0.0.1%3Becho%20{marker}", f"127.0.0.1%7Cecho%20{marker}"):
+                    try:
+                        r = h.get(f"{ctx['base_url']}/api/ping?{param}={payload}")
+                    except Exception:
+                        continue
+                    if marker in body_of(r):
+                        return self.fail(f"Command Injection bestaetigt ueber Parameter '{param}' "
+                                         f"(echo-Marker im Output).")
         # Zeitbasiert und daher nur bei Deep — vermeidet Fehlalarme und Last.
         if "Deep" not in ctx.get("intensity", ""):
-            return self.skipped("Nur bei Intensitaet 'Deep' (zeitbasiert).")
-        h = Http(ctx)
+            return self.skipped("Nur bei Intensitaet 'Deep' (zeitbasiert) oder im Angriffsmodus.")
         for param in ("host", "ip", "cmd", "ping", "domain", "target"):
             for payload in ("127.0.0.1;sleep 5", "127.0.0.1%26%26sleep%205", "127.0.0.1|sleep 5"):
                 try:

@@ -1,11 +1,12 @@
 """Authentifizierungs- und Session-naehere Pruefungen: Schutz vor
 Brute-Force am Login und Analyse ausgestellter JWTs."""
 import time
-from core.base_test import BaseTest, Http, header_get
+from core.base_test import BaseTest, Http, header_get, scaled
 
 
 class RateLimitTest(BaseTest):
     test_id = "AUTH-01"; title = "Rate-Limiting am Login"; severity = "medium"
+    requires_aggressive = True
 
     def run(self, ctx):
         # Viele Fehlversuche kosten Zeit — daher nur ab Medium.
@@ -13,9 +14,12 @@ class RateLimitTest(BaseTest):
             return self.skipped("Nur ab Intensitaet 'Medium'.")
         h = Http(ctx)
         login = h.abs(ctx.get("config", {}).get("login_path", "/login"))
+        # Angriffsmodus: echter Brute-Force, Menge ueber die Staerkestufe (20..300).
+        aggressive = ctx.get("aggressive")
+        attempts = scaled(ctx, 20, 300) if aggressive else 18
         limited = False
         seen_any = False
-        for i in range(18):
+        for i in range(attempts):
             try:
                 r = h.fetch(login, method="POST",
                             data={"username": "audit", "password": f"wrong{i}"},
@@ -30,6 +34,9 @@ class RateLimitTest(BaseTest):
             return self.skipped("Login-Endpunkt nicht erreichbar.")
         if limited:
             return self.ok("Login drosselt wiederholte Fehlversuche (429/Retry-After).")
+        if aggressive:
+            return self.fail(f"Brute-Force bestaetigt: {attempts} Fehlversuche ohne Drosselung "
+                             f"akzeptiert — kein Rate-Limiting.", severity="high")
         return self.warn("Kein erkennbares Rate-Limiting am Login — Brute-Force erleichtert.")
 
 

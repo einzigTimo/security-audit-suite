@@ -90,6 +90,15 @@ jobs:
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version "${{ steps.ver.outputs.version }}"
 
+      - name: SHA-256 fuer Setup erzeugen
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $setup = "dist\SecurityAuditSuite-$version-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "Setup nicht gefunden: $setup" }
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $setup)" | Set-Content -Path "$setup.sha256" -Encoding ascii
+
       - name: Release erstellen und Setup anhaengen
         shell: pwsh
         env:
@@ -98,8 +107,10 @@ jobs:
           $version = "${{ steps.ver.outputs.version }}"
           $tag = "sat-v$version"
           $setup = "dist\SecurityAuditSuite-$version-Setup.exe"
+          $checksum = "$setup.sha256"
           if (-not (Test-Path $setup)) { throw "Setup nicht gefunden: $setup" }
-          gh release create "$tag" "$setup" `
+          if (-not (Test-Path $checksum)) { throw "Checksumme nicht gefunden: $checksum" }
+          gh release create "$tag" "$setup" "$checksum" `
             --target "$env:GITHUB_SHA" `
             --title "Security Audit Suite $version" `
             --notes "Automatisch gebautes Windows-Setup. Nur mit ausdruecklicher Testberechtigung verwenden." `

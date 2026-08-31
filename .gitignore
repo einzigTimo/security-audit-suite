@@ -1,23 +1,53 @@
-# Laufzeit-Artefakte des Selbsttests
-selftest/*.pem
-# Erzeugte Audit-Reports
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments and editor state
+.venv/
+venv/
+.env
+.env.*
+.idea/
+.vscode/
+.claude/
+.mcp.json
+.project*/
+graphify-out/
+
+# Credentials, keys, sessions and browser state
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.session.json
+session*.json
+storage-state*.json
+browser-state/
+playwright/.auth/
+
+# Reports and logs
 audit_*.txt
 audit_*.json
 audit_*.html
-# Update-Arbeitsverzeichnis
-updates/temp_extract/
-updates/*.zip
-# PyInstaller-Build-Ausgabe
+reports/
+logs/
+*.log
+
+# Updates and build artifacts
+updates/
 build/
 dist/
 *.manifest
-# GitHub-Token für den Updater (nie einchecken)
-.gh_token
-# PyInstaller-Build-Artefakte
-/build/
-/dist/
 *.spec.bak
 
-# Python-Bytecode
-__pycache__/
-*.pyc
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -92,7 +92,10 @@ Write-Host "== Inno Setup: $iscc ==" -ForegroundColor Cyan
 
 $setup = Join-Path $app "dist\SecurityAuditSuite-$Version-Setup.exe"
 if (Test-Path $setup) {
+    $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+    "$hash  $(Split-Path -Leaf $setup)" | Set-Content -Path "$setup.sha256" -Encoding ascii
     Write-Host "`nFERTIG. Setup: $setup" -ForegroundColor Green
+    Write-Host "SHA-256: $setup.sha256" -ForegroundColor Green
 } else {
     Write-Host "`nBuild lief durch, aber Setup-Datei nicht gefunden (siehe dist\)." -ForegroundColor Yellow
 }

@@ -20,6 +20,42 @@ JWT_OK = _b64u({"alg": "HS256", "typ": "JWT"}) + "." + _b64u({"sub": "1", "exp":
 _login_attempts = 0
 _login_lock = threading.Lock()
 
+# Persistenter Zustand je Modus (vuln/secure) fuer schreibende Angriffs-Proben.
+_state_lock = threading.Lock()
+_comments = {"vuln": [], "secure": []}
+_uploads = {"vuln": {}, "secure": {}}
+
+
+def _guess_ctype(name):
+    low = name.lower()
+    if low.endswith(".html") or low.endswith(".htm"):
+        return "text/html"
+    if low.endswith(".svg"):
+        return "image/svg+xml"
+    if low.endswith(".js"):
+        return "application/javascript"
+    return "application/octet-stream"
+
+
+def _parse_multipart(raw, ctype):
+    """Minimaler Multipart-Parser: erstes Datei-Teil -> (filename, bytes)."""
+    if "boundary=" not in ctype:
+        return None, None
+    boundary = ("--" + ctype.split("boundary=", 1)[1].strip().strip('"')).encode()
+    for part in raw.split(boundary):
+        if b"filename=" not in part:
+            continue
+        head, _, content = part.partition(b"\r\n\r\n")
+        if not content:
+            continue
+        try:
+            hdr = head.decode("utf-8", "replace")
+            fname = hdr.split("filename=", 1)[1].split('"')[1]
+        except Exception:
+            fname = "upload.bin"
+        return fname, content.rsplit(b"\r\n", 1)[0]
+    return None, None
+
 
 class Handler(BaseHTTPRequestHandler):
     MODE = "vuln"
@@ -68,13 +104,64 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "TRACE " + self.path, ctype="message/http")
 
     def do_PATCH(self):
-        self._api_write()
+        self._route_write("PATCH")
 
     def do_PUT(self):
-        self._api_write()
+        self._route_write("PUT")
 
     def do_POST(self):
-        self._api_write()
+        self._route_write("POST")
+
+    def do_DELETE(self):
+        self._route_write("DELETE")
+
+    def _route_write(self, method):
+        path = urlparse(self.path).path
+        if path == "/login" and method == "POST":
+            return self._login_post()
+        if path == "/comments" and method == "POST":
+            return self._comments_post()
+        if path == "/upload" and method == "POST":
+            return self._upload_post()
+        if path.startswith("/api/users/") and method == "DELETE":
+            return self._user_delete(path)
+        return self._api_write()
+
+    def _read_body(self):
+        length = int(self.headers.get("content-length", 0) or 0)
+        return self.rfile.read(length) if length else b""
+
+    def _comments_post(self):
+        raw = self._read_body()
+        try:
+            payload = json.loads(raw or b"{}")
+            text = str(payload.get("comment") or payload.get("text") or "")
+        except Exception:
+            text = parse_qs(raw.decode("utf-8", "replace")).get("comment", [""])[0]
+        with _state_lock:
+            _comments[self.MODE].append(text)
+        return self._send(201, json.dumps({"status": "ok"}), ctype="application/json")
+
+    def _upload_post(self):
+        raw = self._read_body()
+        fname, content = _parse_multipart(raw, self.headers.get("content-type", ""))
+        if not fname:
+            return self._send(400, "no file")
+        low = fname.lower()
+        dangerous = low.endswith((".html", ".htm", ".svg", ".js", ".php", ".phtml", ".exe"))
+        if self.MODE == "secure" and dangerous:
+            return self._send(403, json.dumps({"error": "file type not allowed"}),
+                              ctype="application/json")
+        with _state_lock:
+            _uploads[self.MODE][fname] = content
+        return self._send(200, json.dumps({"url": f"/uploads/{fname}"}), ctype="application/json")
+
+    def _user_delete(self, path):
+        uid = path.rstrip("/").split("/")[-1]
+        if self.MODE == "secure":
+            return self._send(401, "unauthorized")
+        return self._send(200, json.dumps({"deleted": uid, "status": "ok"}),
+                          ctype="application/json")
 
     def _login_post(self):
         global _login_attempts
@@ -171,10 +258,17 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/items":
             val = self._q("id") or self._q("q")
-            if not secure and "'" in val and "SLEEP" not in val.upper():
+            up = val.upper()
+            if not secure and "'" in val and "SLEEP" not in up:
                 return self._send(500, "You have an error in your SQL syntax near '''")
-            if not secure and "SLEEP" in val.upper():
+            if not secure and "SLEEP" in up:
                 time.sleep(5)
+                return self._send(200, "[]", ctype="application/json")
+            # Boolean-basierte SQLi: wahre Bedingung liefert Daten, falsche nicht.
+            if not secure and "1=1" in val:
+                return self._send(200, json.dumps([{"id": 1}, {"id": 2}, {"id": 3}]),
+                                  ctype="application/json")
+            if not secure and "1=2" in val:
                 return self._send(200, "[]", ctype="application/json")
             return self._send(200, "[]", ctype="application/json")
 
@@ -204,11 +298,51 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, "bad request")
 
         if p == "/api/ping":
-            host = self._q("host") or self._q("ip") or self._q("cmd")
-            if not secure and "sleep" in host.lower():
+            host = self._q("host") or self._q("ip") or self._q("cmd") \
+                or self._q("ping") or self._q("domain") or self._q("target")
+            low = host.lower()
+            if not secure and "sleep" in low:
                 time.sleep(5)
                 return self._send(200, "pong", ctype="text/plain")
+            # Command Injection mit direktem Output: echo <marker> wird ausgegeben.
+            if not secure and "echo" in low:
+                marker = host.split("echo", 1)[1].strip().strip(";|&")
+                return self._send(200, f"PING 127.0.0.1\n{marker}\n", ctype="text/plain")
             return self._send(200 if secure else 400, "pong")
+
+        # Stored XSS: gespeicherte Kommentare ausgeben (vuln roh, secure kodiert).
+        if p == "/comments":
+            with _state_lock:
+                items = list(_comments[self.MODE])
+            if secure:
+                rows = "".join(f"<li>{html.escape(c)}</li>" for c in items)
+            else:
+                rows = "".join(f"<li>{c}</li>" for c in items)
+            return self._send(200, f"<html><body><ul>{rows}</ul></body></html>")
+
+        # Hochgeladene Dateien ausliefern.
+        if p.startswith("/uploads/"):
+            name = p.split("/uploads/", 1)[1]
+            with _state_lock:
+                data = _uploads[self.MODE].get(name)
+            if data is None:
+                return self._send(404, "not found")
+            if secure:
+                # Gehaertet: nie als aktiver Inhalt, immer als Download-Text.
+                return self._send(200, data, ctype="text/plain",
+                                  extra=[("Content-Disposition", "attachment")])
+            return self._send(200, data, ctype=_guess_ctype(name))
+
+        # SSRF: Server ruft eine uebergebene URL ab und spiegelt sie (nur vuln).
+        if p == "/api/fetch":
+            target = ""
+            for key in ("url", "target", "dest", "uri", "path", "callback", "next", "image"):
+                target = self._q(key)
+                if target:
+                    break
+            if secure:
+                return self._send(400, "blocked: URL not in allowlist")
+            return self._send(200, f"<html><body>proxied {target}</body></html>")
 
         # Geschuetzte Bereiche
         if p in ("/dashboard", "/admin", "/settings", "/account", "/api/me"):

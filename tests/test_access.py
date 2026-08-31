@@ -1,7 +1,7 @@
 """Zugriffskontrolle: unautorisierter Zugriff auf geschuetzte Bereiche und APIs,
 IDOR/BOLA und Mass Assignment. Die session-gebundenen Tests laufen nur mit
 erfasster Session (sonst BLOCKED durch die Engine)."""
-from core.base_test import BaseTest, Http, header_get, body_of
+from core.base_test import BaseTest, Http, header_get, body_of, scaled
 
 PII_MARKERS = ("email", "@", "password", "\"role\"", "ssn", "iban", "creditcard")
 
@@ -49,7 +49,9 @@ class IDORTest(BaseTest):
     def run(self, ctx):
         h = Http(ctx)
         seen = 0
-        for i in range(1, 8):
+        # Angriffsmodus skaliert die Anzahl geprobter IDs (8..80).
+        span = scaled(ctx, 8, 80) if ctx.get("aggressive") else 8
+        for i in range(1, span):
             for tmpl in ("/api/users/{}", "/api/orders/{}", "/api/accounts/{}", "/api/documents/{}"):
                 try:
                     r = h.get(h.abs(tmpl.format(i)))
@@ -58,24 +60,46 @@ class IDORTest(BaseTest):
                 if r.status == 200 and _looks_like_data(body_of(r)):
                     seen += 1
         if seen >= 3:
+            # Angriffsmodus: destruktive Bestaetigung per DELETE auf eine gefundene ID.
+            if ctx.get("aggressive"):
+                for i in range(1, 4):
+                    try:
+                        r = h.fetch(h.abs(f"/api/users/{i}"), method="DELETE")
+                    except Exception:
+                        continue
+                    if r.status in (200, 204) and (r.status == 204 or "delet" in body_of(r).lower()):
+                        return self.fail(f"IDOR destruktiv bestaetigt: fremder Datensatz per DELETE "
+                                         f"entfernbar (/api/users/{i}).", severity="critical")
             return self.fail(f"Fortlaufende Objekt-IDs frei abrufbar ({seen} Treffer) — IDOR/BOLA.")
         return self.ok("Kein offensichtliches IDOR/BOLA.")
 
 
 class MassAssignmentTest(BaseTest):
     test_id = "API-03"; title = "Mass Assignment"; severity = "high"; requires_session = True
+    requires_aggressive = True
 
     def run(self, ctx):
-        # Sendet ein Privileg-Feld an einen Profil-Endpunkt und prueft die Antwort
-        # auf Uebernahme. Nur mit erfasster Session (autorisiert) aktiv.
+        # Sendet ein Privileg-Feld an einen Profil-Endpunkt und prueft die Antwort.
+        # Wegen PATCH ausschliesslich nach aktivem Opt-in.
         h = Http(ctx)
+        # Angriffsmodus: echte Rechteausweitung (isAdmin=true) statt harmloser Probe.
+        aggressive = ctx.get("aggressive")
+        if aggressive:
+            probe = {"role": "auditor-admin", "isAdmin": True}
+        else:
+            probe = {"role": "auditor-probe", "isAdmin": False}
         for path in ("/api/profile", "/api/users/me", "/api/account"):
             try:
-                r = h.fetch(h.abs(path), method="PATCH",
-                            data={"role": "auditor-probe", "isAdmin": False},
+                r = h.fetch(h.abs(path), method="PATCH", data=probe,
                             headers={"content-type": "application/json"})
             except Exception:
                 continue
-            if r.status in (200, 201) and "auditor-probe" in body_of(r).lower():
+            if r.status not in (200, 201):
+                continue
+            body = body_of(r).lower().replace(" ", "")
+            if aggressive and '"isadmin":true' in body:
+                return self.fail(f"Privileg-Eskalation bestaetigt: Server uebernimmt isAdmin=true "
+                                 f"({path}).", severity="critical")
+            if "auditor-probe" in body or (aggressive and "auditor-admin" in body):
                 return self.fail(f"Server uebernimmt clientseitige Rollen-/Rechtefelder ({path}).")
         return self.ok("Kein Mass Assignment erkannt.")

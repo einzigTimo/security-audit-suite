@@ -19,5 +19,5 @@
 
 - `packaging/build.ps1` stempelt `version.json` beim lokalen Bauen um — diese
   Änderung nicht committen, außer sie ist der beabsichtigte Versions-Bump.
-- Die 31 Selbsttests laufen lokal (siehe README); vor einem Release müssen sie
+- Die 46 Selbsttests laufen lokal (siehe README); vor einem Release müssen sie
   grün sein.

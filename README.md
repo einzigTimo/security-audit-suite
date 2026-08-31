@@ -26,12 +26,23 @@ The easiest way — no Python, no setup:
 > Windows SmartScreen may warn because the installer is not code-signed. Choose
 > *More info → Run anyway* if you trust the source.
 
-Once installed, start **Security Audit Suite**, enter the **target URL**, pick
-the scan intensity, confirm the permission to test, and start the run. Every
-HTTP request is logged live, so you can always see what is being checked.
+Once installed, start **Security Audit Suite**, enter the **target URL**, choose
+the inventory mode plus separate read/write intensity, confirm the permission to
+test, and start the run. Every HTTP request is logged live, so you can always
+see what is being checked. Target URLs and permission confirmations are kept
+only for the active run and are cleared before the scan starts.
 
 The app updates itself: the **Updates** button checks the Releases page for a
-newer version.
+newer version. Updates are accepted only when the release contains both
+`SecurityAuditSuite-<version>-Setup.exe` and the matching `.sha256` sidecar.
+
+## Intensity model
+
+Inventory has two levels: **Quick** for compact metadata and **Full** for deeper
+fingerprinted inventory. Read intensity has levels 1-4, where level 4 maps to
+the maximum deep-analysis effort. Write intensity has levels 0-4. Level 0 keeps
+all write-capable tests blocked. Levels 1-4 enable the opt-in attack mode, with
+level 4 using the maximum write/aggression budget.
 
 ## Run from source (for developers)
 
@@ -51,6 +62,8 @@ python gui.pyw
 | `core/engine.py` | `AuditEngine.run()` — loads tests, runs them, invokes the callbacks |
 | `core/base_test.py` | `BaseTest` / `TestResult` — the contract every test follows |
 | `core/browser.py` | Playwright/Chromium management, optionally with `storage_state` |
+| `core/policy.py` | Read/write/inventory policy and compatibility mapping |
+| `core/inventory.py` | Quick/full local inventory helpers without absolute-path output |
 | `core/spider.py` | Simple crawling of the target site |
 | `core/reporter.py` | Report generation (text/JSON/HTML) |
 | `core/remediation.py` | Remediation advice per finding |
@@ -65,8 +78,8 @@ python gui.pyw
 python selftest/verify.py
 ```
 
-Starts a local test fixture and verifies that the engine produces the expected
-findings — without touching any external target.
+Starts a local test fixture and verifies 46 checks in both standard and
+attack-mode runs — without touching any external target.
 
 ## Windows build
 
@@ -80,8 +93,9 @@ Produces `dist/SecurityAuditSuite/` and, via Inno Setup, a Windows setup
 installer. Production releases are started exclusively through the maintainer's
 deploy controller ("Develop Zentrale"), which dispatches the signed GitHub
 Actions release workflow; the workflow reads the version from `version.json`,
-builds the setup, and creates the `sat-vX.Y.Z` release. Tags are created by the
-release workflow, not pushed by hand.
+builds the setup, creates the required `.sha256` sidecar, and creates the
+`sat-vX.Y.Z` release. Tags are created by the release workflow, not pushed by
+hand.
 
 ## Note on language
 

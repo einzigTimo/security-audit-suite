@@ -30,6 +30,9 @@ class BaseTest:
     severity: str = "info"
     requires_session: bool = False
     requires_ui: bool = False
+    # requires_aggressive: Test fuehrt schreibende/destruktive Proben aus und
+    # laeuft nur im opt-in Angriffsmodus (sonst SKIPPED durch die Engine).
+    requires_aggressive: bool = False
 
     def run(self, context) -> TestResult:
         raise NotImplementedError
@@ -66,6 +69,7 @@ class Http:
         self._req = ctx["page"].request
         self.base_url = ctx["base_url"]
         self._log = ctx.get("log_request")
+        self._active_allowed = bool(ctx.get("aggressive"))
 
     def _trace(self, method, url):
         if self._log:
@@ -83,6 +87,11 @@ class Http:
         return self._req.head(url, **kw)
 
     def fetch(self, url, method="GET", **kw):
+        method = str(method).upper()
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and not self._active_allowed:
+            raise PermissionError(
+                f"{method} ist nur nach ausdruecklichem Opt-in fuer aktive Pruefungen erlaubt."
+            )
         kw.setdefault("timeout", 15000)
         kw["method"] = method
         self._trace(method, url)
@@ -92,6 +101,20 @@ class Http:
         if path.startswith("http"):
             return path
         return f"{self.base_url}{path if path.startswith('/') else '/' + path}"
+
+
+def aggression(ctx):
+    """Staerkestufe des Angriffsmodus als int 1..10 (Standard 5)."""
+    try:
+        return max(1, min(10, int(ctx.get("aggression", 5))))
+    except Exception:
+        return 5
+
+
+def scaled(ctx, lo, hi):
+    """Menge linear zur Staerkestufe: Stufe 1 -> lo, Stufe 10 -> hi."""
+    level = aggression(ctx)
+    return int(round(lo + (hi - lo) * (level - 1) / 9))
 
 
 def header_get(response, name, default=""):
